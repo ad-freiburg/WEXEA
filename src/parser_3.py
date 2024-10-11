@@ -4,6 +4,7 @@ import json
 import multiprocessing
 import time
 import datetime
+import argparse
 from utils import create_file_name_and_directory, jsonKeys2int, find_positions_of_all_links_with_regex, create_filename, RE_LINKS
 
 from stanza.server import CoreNLPClient, StartServer
@@ -26,7 +27,8 @@ def process_article(text,
                     links,
                     client,
                     props,
-                    annotators):
+                    annotators,
+                    new_filename):
 
     article_aliases = {}
     article_aliases_list = []
@@ -57,7 +59,7 @@ def process_article(text,
     seen_entities_split = {}
     complete_content = ''
     for line in text.split('\n'):
-        line = line.strip()
+        line = line.strip("\n")
 
         if len(line) == 0:
             complete_content += '\n'
@@ -113,9 +115,10 @@ def process_article(text,
         current_sent_idx = 0
         for i in range(len(positions)):
             tuple = positions[i]
-            while current_sent_idx < len(sentence_breaks) and tuple[0] > sentence_breaks[current_sent_idx]:
-                sentence_breaks[current_sent_idx] += num_additional_characters
-                current_sent_idx += 1
+            if not args.input_dir:
+                while current_sent_idx < len(sentence_breaks) and tuple[0] > sentence_breaks[current_sent_idx]:
+                    sentence_breaks[current_sent_idx] += num_additional_characters
+                    current_sent_idx += 1
             start = tuple[0] + num_additional_characters
             entity = tuple[1]
             alias = tuple[2]
@@ -244,13 +247,19 @@ def process_article(text,
 
             num_additional_characters += (len(new_annotation) - len(alias_to_print))
             line = line[:start] + new_annotation + line[start + len(alias_to_print):]
-        
-        for i in reversed(range(len(sentence_breaks)-1)):
-            line = line[:sentence_breaks[i]] + '\n' + line[sentence_breaks[i]:].strip()
-        
+
+        if not args.input_dir:
+            # Natalie Prange: I don't know why the sentence breaks would be needed and they are sometimes set within
+            # annotations, messing up the sentences and messing with the predictions by parser 4 (for the Cienaga Baja
+            # article in Wiki-Fair v2.0 for example, an annotation with multiple candidates remains unresolved in parser 4)
+            for i in reversed(range(len(sentence_breaks)-1)):
+                line = line[:sentence_breaks[i]] + '\n' + line[sentence_breaks[i]:].strip("\n")
         complete_content += '\n' + line
 
-    filename = create_file_name_and_directory(title, outputpath + ARTICLE_OUTPUTPATH + '/')
+    if args.input_dir:
+        filename = new_filename
+    else:
+        filename = create_file_name_and_directory(title, outputpath + ARTICLE_OUTPUTPATH + '/')
     with open(filename, 'w') as f:
         f.write(complete_content.strip())
 
@@ -323,15 +332,20 @@ def process_articles(process_index,
             title = filename2title[filename]
             #if title == "Queen Victoria" or title == "Wilhelm II, German Emperor" or title == 'Queen Victoria Park':
             #try:
-            if title in title2Id:
-                title_id = title2Id[title]
+            if args.input_dir and title not in title2Id:
+                print("Title not in title2ID: " + title)
+            if title in title2Id or args.input_dir:
+                title_id = title2Id[title] if title in title2Id else -1
 
-                new_filename, _, _, _ = create_filename(title, outputpath + ARTICLE_OUTPUTPATH + '/')
+                if args.input_dir:
+                    new_filename = articlepath + filename[filename.rfind("/") + 1:]
+                else:
+                    new_filename, _, _, _ = create_filename(title,  outputpath + ARTICLE_OUTPUTPATH + '/')
                 new_filename2title[new_filename] = title
 
                 logger.write("Start with file: " + new_filename + "\n")
 
-                if not os.path.isfile(new_filename):
+                if not os.path.isfile(new_filename) or args.input_dir:
                     with open(filename) as f:
                         text = f.read()
                         process_article(text,
@@ -346,7 +360,8 @@ def process_articles(process_index,
                                         disambiguations_human,
                                         disambiguations_geo,
                                         links,
-                                        client, props, annotators)
+                                        client, props, annotators,
+                                        new_filename)
 
                     logger.write("File done: " + new_filename + "\n")
                 else:
@@ -363,8 +378,9 @@ def process_articles(process_index,
 
     print("Process " + str(process_index) + ', articles processed: ' + str(counter_all))
 
-    with open(dictionarypath + str(process_index) + '_filename2title_3.json', 'w') as f:
-        json.dump(new_filename2title, f)
+    if not args.input_dir:
+        with open(dictionarypath + str(process_index) + '_filename2title_3.json', 'w') as f:
+            json.dump(new_filename2title, f)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -385,13 +401,17 @@ def merge_all_dictionaries(num_processes, dictionarypath):
 
 
 if (__name__ == "__main__"):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--input_dir", type=str, help="Input directory with articles")
+    args = parser.parse_args()
+
     config = json.load(open('config/config.json'))
     num_processes = config['processes']
     wikipath = config['wikipath']
     outputpath = config['outputpath']
     logging_path = config['logging_path']
     dictionarypath = outputpath + 'dictionaries/'
-    articlepath = outputpath + ARTICLE_OUTPUTPATH + '/'
+    articlepath = outputpath + ARTICLE_OUTPUTPATH + '/' if not args.input_dir else args.input_dir.strip("/") + "_parsed_3/"
     try:
         mode = 0o755
         os.mkdir(logging_path, mode)
@@ -421,10 +441,32 @@ if (__name__ == "__main__"):
     disambiguations_geo = json.load(open(dictionarypath + 'disambiguations_geo.json'))
     title2Id = json.load(open(dictionarypath + 'title2id_pruned.json'))
     links = json.load(open(dictionarypath + 'links_pruned.json'), object_hook=jsonKeys2int)
-    filename2title = json.load(open(dictionarypath + 'filename2title_2.json'))
+
+    if args.input_dir:
+        # Create custom filename2title dictionary for the articles in the input directory
+        filename2title = {}
+        for filename in os.listdir(args.input_dir):
+            with open(args.input_dir + filename) as f:
+                title = f.readline().strip()
+                filename2title[args.input_dir + filename] = title
+        # print(filename2title)
+        # Extend title2ID since many benchmark articles are not in the pruned title2ID dictionary
+        print("Extending title2ID...")
+        with open("/local/data/entity-linking/wikipedia_mappings/wikipedia_id_to_title.tsv") as f:
+            for line in f:
+                parts = line.strip().split('\t')
+                title = parts[1]
+                id = int(parts[0])
+                if title not in title2Id:
+                    title2Id[title] = int(parts[0])
+
+    else:
+        filename2title = json.load(open(dictionarypath + 'filename2title_2.json'))
     filenames = list(filename2title.keys())
 
+    print(f"filenames: {filenames[:3]}")
     print("Read dictionaries.")
+    print(f"title2ID: {next(iter(title2Id.items()))}")
 
     jobs = []
     for i in range(num_processes):
@@ -460,4 +502,5 @@ if (__name__ == "__main__"):
     for job in jobs:
         job.join()
 
-    merge_all_dictionaries(num_processes, dictionarypath)
+    if not args.input_dir:
+        merge_all_dictionaries(num_processes, dictionarypath)

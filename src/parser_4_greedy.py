@@ -1,3 +1,4 @@
+import argparse
 import re
 import os
 import json
@@ -10,12 +11,13 @@ ARTICLE_OUTPUTPATH = "articles_final"
 NER_TAGS = {"SET", "ORDINAL", "PER", "LOC", "ORG", "DATE","NUMBER","MISC","LOCATION","PERSON","ORGANIZATION",'DURATION','MONEY','PERCENT','TIME'}
 
 
-def process_article(text, title, corefs, aliases_reverse, coref_assignments):
+def process_article(text, title, corefs, aliases_reverse, coref_assignments, new_filename):
 
     current_corefs = {}
     complete_content = ''
     for line in text.split('\n'):
-        line = line.strip()
+        # Natalie Prange: Strip only newlines, not rogue trailing whitespaces
+        line = line.strip("\n")
 
         if len(line) == 0:
             complete_content += '\n'
@@ -25,7 +27,9 @@ def process_article(text, title, corefs, aliases_reverse, coref_assignments):
             complete_content += '\n' + line
             continue
 
-        while True:
+        while not args.input_dir:
+            # Natalie Prange: We don't want a cleanup for our benchmarks, since it changes the article
+            # text and thus messes with span starts and ends
             found = False
             for tuple in CLEANUP:
                 # re.sub(tuple[0],tuple[1])
@@ -167,12 +171,14 @@ def process_article(text, title, corefs, aliases_reverse, coref_assignments):
             start = tuple[0]
             length = tuple[1]
             annotation = '|'.join(tuple[2])
-
             line = line[:start] + '[[' + annotation + ']]' + line[start + length:]
 
         complete_content += '\n' + line
 
-    filename = create_file_name_and_directory(title, outputpath + ARTICLE_OUTPUTPATH + '/')
+    if args.input_dir:
+        filename = new_filename
+    else:
+        filename = create_file_name_and_directory(title, outputpath + ARTICLE_OUTPUTPATH + '/')
     with open(filename, 'w') as f:
         f.write(complete_content.strip())
 
@@ -191,15 +197,18 @@ def process_articles(filename2title,filenames, logging_path, corefs, aliases_rev
     for i in range(len(filenames)):
         filename = filenames[i]
         title = filename2title[filename]
-        new_filename, _, _, _ = create_filename(title, outputpath + ARTICLE_OUTPUTPATH + '/')
+        if args.input_dir:
+            new_filename = articlepath + filename[filename.rfind("/") + 1:]
+        else:
+            new_filename, _, _, _ = create_filename(title, outputpath + ARTICLE_OUTPUTPATH + '/')
         new_filename2title[new_filename] = title
 
         logger.write("Start with file: " + new_filename + "\n")
 
-        if not os.path.isfile(new_filename):
+        if not os.path.isfile(new_filename) or args.input_dir:
             with open(filename) as f:
                 text = f.read()
-                process_article(text,title,corefs, aliases_reverse, coref_assignments)
+                process_article(text,title,corefs, aliases_reverse, coref_assignments, new_filename)
 
             logger.write("File done: " + new_filename + "\n")
         else:
@@ -212,8 +221,9 @@ def process_articles(filename2title,filenames, logging_path, corefs, aliases_rev
 
     print("articles processed: " + str(counter_all))
 
-    with open(dictionarypath + 'filename2title_final.json', 'w') as f:
-        json.dump(new_filename2title, f)
+    if not args.input_dir:
+        with open(dictionarypath + 'filename2title_final.json', 'w') as f:
+            json.dump(new_filename2title, f)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -223,13 +233,22 @@ def process_articles(filename2title,filenames, logging_path, corefs, aliases_rev
 
 
 if (__name__ == "__main__"):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--input_dir", type=str, help="Input directory with articles")
+    args = parser.parse_args()
+
     config = json.load(open('config/config.json'))
     num_processes = config['processes']
     wikipath = config['wikipath']
     outputpath = config['outputpath']
     logging_path = config['logging_path']
     dictionarypath = outputpath + 'dictionaries/'
-    articlepath = outputpath + ARTICLE_OUTPUTPATH + '/'
+    articlepath = outputpath + ARTICLE_OUTPUTPATH + '/' if not args.input_dir else args.input_dir.strip("/")[:-1] + "4/"
+
+    if args.input_dir and not args.input_dir.strip("/").endswith("_parsed_3"):
+        print("Input directory must be the output of parser_3.py")
+        exit(1)
+
     try:
         mode = 0o755
         os.mkdir(articlepath, mode)
@@ -250,7 +269,15 @@ if (__name__ == "__main__"):
     else:
         coref_assignments = {'he': 'male', 'his': 'male', 'him': 'male', 'himself': 'male', 'she': 'female', 'her': 'female', 'herself': 'female'}
 
-    filename2title = json.load(open(dictionarypath + 'filename2title_3.json'))
+    if args.input_dir:
+        # Create custom filename2title dictionary for the articles in the input directory
+        filename2title = {}
+        for filename in os.listdir(args.input_dir):
+            with open(args.input_dir.strip("/")[:-len("_parsed_3")] + "/" + filename) as f:
+                title = f.readline().strip()
+                filename2title[args.input_dir + filename] = title
+    else:
+        filename2title = json.load(open(dictionarypath + 'filename2title_3.json'))
     filenames = list(filename2title.keys())
     aliases_reverse = json.load(open(dictionarypath + 'aliases_reverse.json'))
 
