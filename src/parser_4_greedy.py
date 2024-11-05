@@ -286,5 +286,6 @@ if (__name__ == "__main__"):
 
     print("Read dictionaries.")
 
-
+    start_time = time.time()
     process_articles(filename2title,filenames, logging_path, corefs, aliases_reverse, coref_assignments)
+    print(f"Total time: {time.time() - start_time}s")

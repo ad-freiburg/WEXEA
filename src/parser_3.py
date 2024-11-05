@@ -452,7 +452,7 @@ if (__name__ == "__main__"):
         # print(filename2title)
         # Extend title2ID since many benchmark articles are not in the pruned title2ID dictionary
         print("Extending title2ID...")
-        with open("/local/data/entity-linking/wikipedia_mappings/wikipedia_id_to_title.tsv") as f:
+        with open("/local/data-ssd/entity-linking/wikipedia_mappings/wikipedia_id_to_title.tsv") as f:
             for line in f:
                 parts = line.strip().split('\t')
                 title = parts[1]
@@ -464,11 +464,10 @@ if (__name__ == "__main__"):
         filename2title = json.load(open(dictionarypath + 'filename2title_2.json'))
     filenames = list(filename2title.keys())
 
-    print(f"filenames: {filenames[:3]}")
     print("Read dictionaries.")
-    print(f"title2ID: {next(iter(title2Id.items()))}")
 
     jobs = []
+    total_time_start = time.time()
     for i in range(num_processes):
         p = multiprocessing.Process(target=process_articles, args=(i,
                                                                    num_processes,
@@ -501,6 +500,7 @@ if (__name__ == "__main__"):
 
     for job in jobs:
         job.join()
+    print(f"Total time: {time.time() - total_time_start}")
 
     if not args.input_dir:
         merge_all_dictionaries(num_processes, dictionarypath)
