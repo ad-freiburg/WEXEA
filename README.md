@@ -2,25 +2,16 @@
 
 WEXEA is an exhaustive Wikipedia entity annotation system, to create a text corpus based on Wikipedia with exhaustive annotations of entity mentions, i.e. linking all mentions of entities to their corresponding articles.
 
+This is a modified version of the [original code](https://github.com/mjstrobl/WEXEA) with which WEXEA's linking results can be easily evaluated using [ELEVANT](https://github.com/ad-freiburg/elevant).
+
 WEXEA runs through several stages of article annotation and the final articles can be found in the 'final_articles' folder in the output directory.
 Articles are separately stored in a folder named after the first 3 letters of the title (lowercase) and sentences are split up leading to one sentence per line.
 Annotations follow the Wikipedia conventions, just the type of the annotation is added at the end.
 
-## Downloads
-
-WEXEA for...
-
-1. English: https://drive.google.com/file/d/1Cd7KEzzjl5g83OuUNKASnDzn_yEDD0mE/view?usp=sharing
-2. German: https://drive.google.com/file/d/1-xRbcwMcOnabljqhq9ilzMurZn7FnNT4/view?usp=sharing
-3. French: https://drive.google.com/file/d/1AHAfBnbg7UW7tr3hdRqIpA6RWld9Z6C0/view?usp=sharing
-4. Spanish: https://drive.google.com/file/d/1DIqNdZ5rECalYhGmr6AhSwO55671Ivic/view?usp=sharing
-
-These datasets can be used as-is. Each archive contains a single file with each article concatenated. Articles themselves contain original as well as new annotations of the following format:
-
-1. [[article name|text alias|annotation type]]
-2. [[text alias|CoreNLP NER type]]
-
-The annotation type of format 1 can be ignored (type "annotation" corresponds to original annotations, all others are new). Annotations of format 2 are CoreNLP annotations without corresponding Wikipedia article. 
+**Note:** For the paper introducing WEXEA, Neural EL by Gupta et al. was used to disambiguate certain mentions.
+The code for this is not functional anymore and not included in this version of the code, but the authors provide a 
+greedy method based on prior probabilities to disambiguate these mentions. This has however only a minor impact on the
+linking results, as Neural EL was only used for a small subset of mentions.
 
 ## Start CoreNLP toolkit
 
@@ -28,37 +19,46 @@ Download (including models for languages other than English) CoreNLP from https:
 
 Start server:
 ```
-java -mx16g -cp "<path to corenlp files>" edu.stanford.nlp.pipeline.StanfordCoreNLPServer -port 9000 -timeout 15000 -threads 6
+cd <path to stanford-corenlp-x.x.x>
+java -mx16g  -cp "*" edu.stanford.nlp.pipeline.StanfordCoreNLPServer -port 9000 -timeout 15000 -threads 6
 ```
-
-## Entity Linker
-
-Entity Linker including models used from https://github.com/nitishgupta/neural-el. 
-
-Download resources from repository and adjust path to resources folder in ```src/entity_linker/configs/config.ini```.
 
 ## Run WEXEA
 
-1. Change language specific keyword variables in src/language_variables.py, depending on Wikipedia dump language.
-2. Install requirements from requirements.txt (Tensorflow only needed for neural EL).
-3. In config/config.json, provide path of latest wiki dump (xml file) and output path (make sure the output folder does not exist yet, it will be created).
-4. Make annotate.sh executable: "chmod 755 annotate.sh"
-5. In annotate.sh: Either use parser_4.py (with neural EL; English only) or parser_4_greedy.py (greedy EL).
-6. Run annotate.sh with ./annotate.sh
+1. If you want to link text in a language other than English, change language specific keyword variables in `src/language_variables.py`.
+2. Install requirements from requirements.txt .
+3. In `config/config.json`, provide path of latest wiki dump (xml file), output path (make sure the output folder does 
+   not exist yet, it will be created) and the absolute path to the sutime directory within this repository.
+4. Make `create_mappings.sh` executable: `chmod 755 create_mappings.sh`
+5. Extract the necessary mappings from the Wikipedia dump by running `./create_mappings.sh`
+6. If you want to link the entire Wikipedia dump using WEXEA, make `annotate.sh` executable using `chmod 755 annotate.sh` 
+   and run `./annotate.sh` (this will take a couple of days). If you want to link a specific benchmark, follow the 
+   steps in the next section
 
-## Visualization
+## ELEVANT evaluation
+Set up [ELEVANT](https://github.com/ad-freiburg/elevant) following the instructions [here](https://github.com/ad-freiburg/elevant/wiki/A-Quick-Start).
 
-server.py starts a server and opens a website that can be used to visualize an article with Wikipedia links (blue) and unknown entities (green).
+To get benchmark articles into WEXEA's expected input format and location use ELEVANT's `write_articles.py` with the 
+following options:
+        
+    python3 scripts/write_articles.py --output_dir <path> --title_in_filename --print_hyperlinks -b <benchmark_name>
 
+Run WEXEA's parser_3.py over the benchmark articles:
+   
+    python3 src/parser_3.py --input_dir <path> --wiki_id_to_title <elevant_data_path>/wikipedia_mappings/wikipedia_id_to_title.tsv
 
-## WiNER evaluation
+Run WEXEA's parser_4_greedy.py over the output from the previous script to get the final annotations:
+   
+    python3 src/parser_4_greedy.py --input_dir <path>_parsed_3
 
-1. Create directory 'wexea_evaluation'.
-2. Adjust directory names for output as well as dictionaries in src/winer.py and src/evaluation.py.
-3. Run winer.py in order to create a sample from WiNER's as well as WEXEA's articles.
-4. Run src/evaluation.py in order to create a file per article, which consists of WiNER addtional annotations (left) and WEXEA's additional annotations (right). Original annotations are removed in order to make the file more readable.
+To add the linking results to ELEVANT, run in your ELEVANT directory
 
-Files we used for evaluation (see Michael Strobl's PhD thesis), can be found in the data folder.
+    python3 link_benchmark.py "WEXEA" -pfile <path>_parsed_4 -pformat wexea -pname wexea -b <benchmark_name>
+
+Evaluate the linking results with
+
+    python3 evaluate.py evaluation-results/wexea/wexea.<benchmark_name>.linked_articles.jsonl
+
 
 ## Hardware requirements
 
@@ -96,3 +96,6 @@ Updated version (from which the linked datasets above are derived):
 
 Strobl, Michael, Amine Trabelsi, and Osmar R. Zaiane. "Enhanced Entity Annotations for Multilingual Corpora." Proceedings of the Thirteenth Language Resources and Evaluation Conference. 2022.
 
+ELEVANT:
+
+Hannah Bast, Matthias Hertel, Natalie Prange. "ELEVANT: A Fully Automatic Fine-Grained Entity Linking Evaluation and Analysis Tool". EMNLP (Demos) 2022

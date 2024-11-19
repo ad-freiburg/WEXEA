@@ -403,6 +403,7 @@ def merge_all_dictionaries(num_processes, dictionarypath):
 if (__name__ == "__main__"):
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input_dir", type=str, help="Input directory with articles")
+    parser.add_argument("-i2t", "--wiki_id_to_title", type=str, help="Path to the Wikipedia ID to title mapping included in ELEVANT.")
     args = parser.parse_args()
 
     config = json.load(open('config/config.json'))
@@ -452,7 +453,7 @@ if (__name__ == "__main__"):
         # print(filename2title)
         # Extend title2ID since many benchmark articles are not in the pruned title2ID dictionary
         print("Extending title2ID...")
-        with open("/local/data-ssd/entity-linking/wikipedia_mappings/wikipedia_id_to_title.tsv") as f:
+        with open(args.wiki_id_to_title) as f:
             for line in f:
                 parts = line.strip().split('\t')
                 title = parts[1]
