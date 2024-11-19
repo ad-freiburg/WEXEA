@@ -1,5 +1,5 @@
 unidecode
-gender-guesser
-yattag
-protobuf
-stanza
+gender-guesser==0.4.0
+yattag==1.16.0
+protobuf==3.19.4
+stanza==1.1.1
